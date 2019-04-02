@@ -62,12 +62,17 @@ namespace Microsoft.Identity.Web.Client
         /// <param name="configuration"></param>
         public TokenAcquisition(IConfiguration configuration, IMSALAppTokenCacheProvider appTokenCacheProvider, IMSALUserTokenCacheProvider userTokenCacheProvider)
         {
+            if (configuration == null)
+                throw new ArgumentNullException(nameof(configuration));
+
             azureAdOptions = new AzureADOptions();
             configuration.Bind("AzureAD", azureAdOptions);
 
             _applicationOptions = new ConfidentialClientApplicationOptions();
             configuration.Bind("AzureAD", _applicationOptions);
 
+            // brentsch - is it OK for these to be null?
+            // what programming model does this support?
             this.AppTokenCacheProvider = appTokenCacheProvider;
             this.UserTokenCacheProvider = userTokenCacheProvider;
         }
@@ -134,6 +139,7 @@ namespace Microsoft.Identity.Web.Client
             }
             catch (MsalException ex)
             {
+                // brentsch - why do we have this statement here and not writting to a log?
                 Debug.WriteLine(ex.Message);
                 throw;
             }
@@ -223,7 +229,7 @@ namespace Microsoft.Identity.Web.Client
         /// }
         /// </code>
         /// </example>
-        public void AddAccountToCacheFromJwt(AspNetCore.Authentication.OpenIdConnect.TokenValidatedContext tokenValidatedContext, IEnumerable<string> scopes = null)
+        public void AddAccountToCacheFromJwt(TokenValidatedContext tokenValidatedContext, IEnumerable<string> scopes = null)
         {
             if (tokenValidatedContext == null)
                 throw new ArgumentNullException(nameof(tokenValidatedContext));

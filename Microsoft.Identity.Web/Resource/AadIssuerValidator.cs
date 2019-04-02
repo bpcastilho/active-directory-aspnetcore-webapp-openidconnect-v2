@@ -154,7 +154,7 @@ namespace Microsoft.Identity.Web.Resource
             string tenantId;
 
             // Extract the tenant Id from the claims
-            tenantId = jwtToken.Claims.FirstOrDefault(c => c.Type == ClaimConstants.tid)?.Value;
+            tenantId = jwtToken.Claims.FirstOrDefault(c => c.Type == ClaimConstants.Tid)?.Value;
 
             if (string.IsNullOrWhiteSpace(tenantId))
             {
