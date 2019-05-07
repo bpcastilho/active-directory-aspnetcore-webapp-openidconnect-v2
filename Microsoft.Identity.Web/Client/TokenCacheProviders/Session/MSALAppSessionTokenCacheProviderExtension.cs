@@ -22,18 +22,37 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+using Microsoft.AspNetCore.Authentication.AzureAD.UI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.Identity.Web.Client.TokenCacheProviders
 {
     public static class MSALAppSessionTokenCacheProviderExtension
     {
+        /// <summary>Adds both App and per-user session token caches.</summary>
+        /// <param name="services">The services collection to add to.</param>
+        /// <returns></returns>
+        public static IServiceCollection AddSessionTokenCaches(this IServiceCollection services)
+        {
+            AddSessionAppTokenCache(services);
+            AddSessionPerUserTokenCache(services);
+
+            return services;
+        }
+
         /// <summary>Adds the Http session based application token cache to the service collection.</summary>
         /// <param name="services">The services collection to add to.</param>
         /// <returns></returns>
         public static IServiceCollection AddSessionAppTokenCache(this IServiceCollection services)
         {
-            services.AddTransient<IMSALAppTokenCacheProvider, MSALAppSessionTokenCacheProvider>();
+            services.AddScoped<IMSALAppTokenCacheProvider>(factory =>
+            {
+                var optionsMonitor = factory.GetRequiredService<IOptionsMonitor<AzureADOptions>>();
+
+                return new MSALAppSessionTokenCacheProvider(optionsMonitor);
+            });
+
             return services;
         }
 
@@ -42,7 +61,7 @@ namespace Microsoft.Identity.Web.Client.TokenCacheProviders
         /// <returns></returns>
         public static IServiceCollection AddSessionPerUserTokenCache(this IServiceCollection services)
         {
-            services.AddTransient<IMSALUserTokenCacheProvider, MSALPerUserSessionTokenCacheProvider>();
+            services.AddScoped<IMSALUserTokenCacheProvider, MSALPerUserSessionTokenCacheProvider>();
             return services;
         }
     }

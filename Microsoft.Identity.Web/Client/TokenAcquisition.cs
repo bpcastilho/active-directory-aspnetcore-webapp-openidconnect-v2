@@ -1,17 +1,43 @@
-﻿using Microsoft.AspNetCore.Authentication.AzureAD.UI;
+﻿/************************************************************************************************
+The MIT License (MIT)
+
+Copyright (c) 2015 Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+***********************************************************************************************/
+
+using Microsoft.AspNetCore.Authentication.AzureAD.UI;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Primitives;
 using Microsoft.Identity.Client;
-using Microsoft.Identity.Client.AppConfig;
 using Microsoft.Identity.Web.Client.TokenCacheProviders;
+using Microsoft.Net.Http.Headers;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Net;
 using System.Security.Claims;
 using System.Threading.Tasks;
 
@@ -99,12 +125,13 @@ namespace Microsoft.Identity.Web.Client
                 // even if it's not done yet, so that it does not concurrently call the Token endpoint.
                 context.HandleCodeRedemption();
 
-                var application = this.BuildConfidentialClientApplication(context.HttpContext, context.Principal);
+                var application = BuildConfidentialClientApplication(context.HttpContext, context.Principal);
 
                 // Do not share the access token with ASP.NET Core otherwise ASP.NET will cache it and will not send the OAuth 2.0 request in
                 // case a further call to AcquireTokenByAuthorizationCodeAsync in the future for incremental consent (getting a code requesting more scopes)
                 // Share the ID Token
-                var result = await application.AcquireTokenByAuthorizationCodeAsync(context.ProtocolMessage.Code, scopes.Except(scopesRequestedByMsalNet));
+                var result = await application.AcquireTokenByAuthorizationCode(scopes.Except(scopesRequestedByMsalNet), context.ProtocolMessage.Code)
+                                              .ExecuteAsync();
                 context.HandleCodeRedemption(null, result.IdToken);
             }
             catch (MsalException ex)
@@ -133,7 +160,7 @@ namespace Microsoft.Identity.Web.Client
                 throw new ArgumentNullException(nameof(scopes));
 
             // Use MSAL to get the right token to call the API
-            var application = this.BuildConfidentialClientApplication(context, context.User);
+            var application = BuildConfidentialClientApplication(context, context.User);
             return await GetAccessTokenOnBehalfOfUser(application, context.User, scopes, tenant);
         }
 
@@ -218,7 +245,7 @@ namespace Microsoft.Identity.Web.Client
         public async Task RemoveAccount(RedirectContext context)
         {
             ClaimsPrincipal user = context.HttpContext.User;
-            IConfidentialClientApplication app = this.BuildConfidentialClientApplication(context.HttpContext, user);
+            IConfidentialClientApplication app = BuildConfidentialClientApplication(context.HttpContext, user);
             IAccount account = await app.GetAccountAsync(context.HttpContext.User.GetMsalAccountId());
 
             // Workaround for the guest account
@@ -228,7 +255,7 @@ namespace Microsoft.Identity.Web.Client
                 account = accounts.FirstOrDefault(a => a.Username == user.GetLoginHint());
             }
 
-            this.AppTokenCacheProvider?.Clear();
+ //           this.AppTokenCacheProvider?.Clear();
             this.UserTokenCacheProvider?.Clear();
 
             await app.RemoveAsync(account);
@@ -306,12 +333,15 @@ namespace Microsoft.Identity.Web.Client
             AuthenticationResult result;
             if (string.IsNullOrWhiteSpace(tenant))
             {
-                result = await application.AcquireTokenSilentAsync(scopes.Except(scopesRequestedByMsalNet), account);
+                result = await application.AcquireTokenSilent(scopes.Except(scopesRequestedByMsalNet), account)
+                                           .ExecuteAsync();
             }
             else
             {
                 string authority = application.Authority.Replace(new Uri(application.Authority).PathAndQuery, $"/{tenant}/");
-                result = await application.AcquireTokenSilentAsync(scopes.Except(scopesRequestedByMsalNet), account, authority, false);
+                result = await application.AcquireTokenSilent(scopes.Except(scopesRequestedByMsalNet), account)
+                                          .WithAuthority(authority)
+                                          .ExecuteAsync();
             }
             return result.AccessToken;
         }
@@ -339,13 +369,69 @@ namespace Microsoft.Identity.Web.Client
                 var application = BuildConfidentialClientApplication(httpContext, principal);
 
                 // .Result to make sure that the cache is filled-in before the controller tries to get access tokens
-                var result = application.AcquireTokenOnBehalfOfAsync(requestedScopes.Except(scopesRequestedByMsalNet), userAssertion).Result;
+                var result = application.AcquireTokenOnBehalfOf(requestedScopes.Except(scopesRequestedByMsalNet), userAssertion)
+                                        .ExecuteAsync()
+                                        .GetAwaiter().GetResult();
             }
             catch (MsalException ex)
             {
                 Debug.WriteLine(ex.Message);
                 throw;
             }
+        }
+
+
+        /// <summary>
+        /// Used in Web APIs (which therefore cannot have an interaction with the user). 
+        /// Replies to the client through the HttpReponse by sending a 403 (forbidden) and populating wwwAuthenticateHeaders so that
+        /// the client can trigger an iteraction with the user so that the user consents to more scopes
+        /// </summary>
+        /// <param name="httpContext">HttpContext</param>
+        /// <param name="scopes">Scopes to consent to</param>
+        /// <param name="msalSeviceException"><see cref="MsalUiRequiredException"/> triggering the challenge</param>
+
+        public void ReplyForbiddenWithWwwAuthenticateHeader(HttpContext httpContext, IEnumerable<string> scopes, MsalUiRequiredException msalSeviceException)
+        {
+            // A user interaction is required, but we are in a Web API, and therefore, we need to report back to the client through an wwww-Authenticate header https://tools.ietf.org/html/rfc6750#section-3.1
+            string proposedAction = "consent";
+            if (msalSeviceException.ErrorCode == MsalError.InvalidGrantError)
+            {
+                if (AcceptedTokenVersionIsNotTheSameAsTokenVersion(msalSeviceException))
+                {
+                    throw msalSeviceException;
+                }
+            }
+
+            IDictionary<string, string> parameters = new Dictionary<string, string>()
+                {
+                    { "clientId", azureAdOptions.ClientId },
+                    { "claims", msalSeviceException.Claims },
+                    { "scopes", string.Join(",", scopes) },
+                    { "proposedAction", proposedAction }
+                };
+
+            string parameterString = string.Join(", ", parameters.Select(p => $"{p.Key}=\"{p.Value}\""));
+            string scheme = "Bearer";
+            StringValues v = new StringValues($"{scheme} {parameterString}");
+
+            //  StringValues v = new StringValues(new string[] { $"Bearer clientId=\"{jwtToken.Audiences.First()}\", claims=\"{ex.Claims}\", scopes=\" {string.Join(",", scopes)}\"" });
+            var httpResponse = httpContext.Response;
+            var headers = httpResponse.Headers;
+            httpResponse.StatusCode = (int)HttpStatusCode.Forbidden;
+            if (headers.ContainsKey(HeaderNames.WWWAuthenticate))
+            {
+                headers.Remove(HeaderNames.WWWAuthenticate);
+            }
+            headers.Add(HeaderNames.WWWAuthenticate, v);
+        }
+
+        private static bool AcceptedTokenVersionIsNotTheSameAsTokenVersion(MsalUiRequiredException msalSeviceException)
+        {
+            // Normally app developers should not make decisions based on the internal AAD code
+            // however until the STS sends sub-error codes for this error, this is the only
+            // way to distinguish the case. 
+            // This is subject to change in the future
+            return (msalSeviceException.Message.Contains("AADSTS50013"));
         }
     }
 }

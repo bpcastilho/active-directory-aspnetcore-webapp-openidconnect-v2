@@ -87,7 +87,7 @@ namespace Microsoft.Identity.Web
 
                     return Task.FromResult(0);
                 };
-
+                
                 // If you want to debug, or just understand the OpenIdConnect events, just
                 // uncomment the following line of code
                 // OpenIdConnectMiddlewareDiagnostics.Subscribe(options.Events);
@@ -109,6 +109,9 @@ namespace Microsoft.Identity.Web
             {
                 // Response type
                 options.ResponseType = OpenIdConnectResponseType.CodeIdToken;
+
+                // This scope is needed to get a refresh token when users sign-in with their Microsoft personal accounts
+                // (it's required by MSAL.NET and automatically provided when users sign-in with work or school accounts)
                 options.Scope.Add(OidcConstants.ScopeOfflineAccess);
                 if (initialScopes != null)
                 {

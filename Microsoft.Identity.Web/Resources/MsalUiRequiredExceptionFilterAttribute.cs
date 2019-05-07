@@ -27,7 +27,13 @@ namespace Microsoft.Identity.Web.Client
         
         public override void OnException(ExceptionContext context)
         {
-            if (context.Exception is MsalUiRequiredException msalUiRequiredException)
+            MsalUiRequiredException msalUiRequiredException = context.Exception as MsalUiRequiredException;
+            if (msalUiRequiredException == null)
+            {
+                msalUiRequiredException = context.Exception?.InnerException as MsalUiRequiredException;
+            }
+
+            if (msalUiRequiredException!=null)
             {
                 if (CanBeSolvedByReSignInUser(msalUiRequiredException))
                 {
@@ -48,7 +54,7 @@ namespace Microsoft.Identity.Web.Client
             // InMemoryCache, the cache could be empty if the server was restarted. This is why
             // the null_user exception is thrown.
 
-            return ex.ErrorCode == MsalUiRequiredException.UserNullError;
+            return ex.ErrorCode == MsalError.UserNullError;
         }
 
         /// <summary>

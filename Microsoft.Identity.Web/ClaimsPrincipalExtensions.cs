@@ -1,36 +1,9 @@
-﻿/************************************************************************************************
-The MIT License (MIT)
-
-Copyright (c) 2015 Microsoft Corporation
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-***********************************************************************************************/
-
-using Microsoft.Identity.Client;
-using System;
-using System.Collections.Generic;
+﻿using Microsoft.Identity.Client;
 using System.Security.Claims;
-using System.Text;
 
 namespace Microsoft.Identity.Web
 {
-    public static class ClaimsPrincipalExtensions
+    public static class ClaimsPrincipalExtension
     {
         /// <summary>
         /// Get the Account identifier for an MSAL.NET account from a ClaimsPrincipal
@@ -135,6 +108,39 @@ namespace Microsoft.Identity.Web
         }
 
         /// <summary>
+        /// Instantiate a ClaimsPrincipal from an account objectId and tenantId. This can
+        /// we useful when the Web app subscribes to another service on behalf of the user
+        /// and then is called back by a notification where the user is identified by his tenant
+        /// id and object id (like in Microsoft Graph Web Hooks)
+        /// </summary>
+        /// <param name="tenantId">Tenant Id of the account</param>
+        /// <param name="objectId">Object Id of the account in this tenant ID</param>
+        /// <returns>A ClaimsPrincipal containing these two claims</returns>
+        /// <example>
+        /// <code>
+        /// private async Task GetChangedMessagesAsync(IEnumerable<Notification> notifications)
+        /// {
+        ///  foreach (var notification in notifications)
+        ///  {
+        ///   SubscriptionStore subscription =
+        ///           subscriptionStore.GetSubscriptionInfo(notification.SubscriptionId);
+        ///  HttpContext.User = ClaimsPrincipalExtension.FromTenantIdAndObjectId(subscription.TenantId,
+        ///                                                                      subscription.UserId);
+        ///  string accessToken = await tokenAcquisition.GetAccessTokenOnBehalfOfUser(HttpContext, scopes);,
+        /// </code>
+        /// </example>
+        public static ClaimsPrincipal FromTenantIdAndObjectId(string tenantId, string objectId)
+        {
+            var tidClaim = new Claim("tid", tenantId);
+            var oidClaim = new Claim("oid", objectId);
+            var claimsIdentity = new ClaimsIdentity();
+            claimsIdentity.AddClaims(new Claim[] { oidClaim, tidClaim });
+            var principal = new ClaimsPrincipal();
+            principal.AddIdentity(claimsIdentity);
+            return principal;
+        }
+
+        /// <summary>
         /// Builds a ClaimsPrincipal from an IAccount
         /// </summary>
         /// <param name="account">The IAccount instance.</param>
@@ -146,7 +152,7 @@ namespace Microsoft.Identity.Web
                 var identity = new ClaimsIdentity();
                 identity.AddClaim(new Claim(ClaimConstants.ObjectId, account.HomeAccountId.ObjectId));
                 identity.AddClaim(new Claim(ClaimConstants.TenantId, account.HomeAccountId.TenantId));
-                identity.AddClaim(new Claim(ClaimConstants.UserprincipalName, account.Username));
+                identity.AddClaim(new Claim(ClaimTypes.Upn, account.Username));
                 return new ClaimsPrincipal(identity);
             }
 

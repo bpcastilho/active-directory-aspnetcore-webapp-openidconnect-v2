@@ -31,16 +31,6 @@ namespace Microsoft.Identity.Web
     {
         public const string ObjectId = "http://schemas.microsoft.com/identity/claims/objectidentifier";
         public const string TenantId = "http://schemas.microsoft.com/identity/claims/tenantid";
-        public const string UserprincipalName = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn";
-
         public const string tid = "tid";
-    }
-
-    public static class OidcConstants
-    {
-        public const string AdditionalClaims = "claims";
-        public const string ScopeOfflineAccess = "offline_access";
-        public const string ScopeProfile = "profile";
-        public const string ScopeOpenId = "openid";
     }
 }
